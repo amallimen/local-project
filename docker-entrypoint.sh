@@ -16,20 +16,20 @@ fi
 # Generate application key if not set
 php artisan key:generate --force || true
 
-# Run migrations
-php artisan migrate --force || true
+# Run migrations (with error handling)
+php artisan migrate --force || echo "Migration failed, continuing..."
 
-# Clear and cache configuration
-php artisan config:clear
-php artisan cache:clear
-php artisan route:clear
-php artisan view:clear
+# Clear and cache configuration (with error handling)
+php artisan config:clear || true
+php artisan cache:clear || true
+php artisan route:clear || true
+php artisan view:clear || true
 
 # Optimize Laravel (only in production)
 if [ "$APP_ENV" = "production" ]; then
-    php artisan config:cache
-    php artisan route:cache
-    php artisan view:cache
+    php artisan config:cache || true
+    php artisan route:cache || true
+    php artisan view:cache || true
 fi
 
 # Use PORT environment variable from Render.com, default to 8000
@@ -37,9 +37,25 @@ if [ -z "$PORT" ]; then
     export PORT=8000
 fi
 
-# Update Apache to use the PORT variable
-sed -i "s/Listen 80/Listen $PORT/g" /etc/apache2/ports.conf
-sed -i "s/:80/:$PORT/g" /etc/apache2/sites-available/000-default.conf
+# Update Apache ports.conf to listen on the PORT
+echo "Listen $PORT" > /etc/apache2/ports.conf
+
+# Create Apache virtual host configuration with dynamic PORT
+cat > /etc/apache2/sites-available/000-default.conf <<EOF
+<VirtualHost *:$PORT>
+    ServerName localhost
+    DocumentRoot /var/www/html/public
+
+    <Directory /var/www/html/public>
+        Options Indexes FollowSymLinks
+        AllowOverride All
+        Require all granted
+    </Directory>
+
+    ErrorLog \${APACHE_LOG_DIR}/error.log
+    CustomLog \${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+EOF
 
 # Start Apache
 exec apache2-foreground
