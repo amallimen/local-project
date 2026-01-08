@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: laravel-app
+    env: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: LOG_LEVEL
+        value: error
+    buildCommand: ""
+    startCommand: ""
+
