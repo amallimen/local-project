@@ -4,7 +4,7 @@ FROM php:8.4-apache
 # Set working directory
 WORKDIR /var/www/html
 
-# Install system dependencies and PHP extensions
+# Install system dependencies, PHP extensions, and Node.js in one layer
 RUN apt-get update && apt-get install -y \
     git \
     curl \
@@ -19,12 +19,10 @@ RUN apt-get update && apt-get install -y \
     zip \
     unzip \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo pdo_mysql pdo_sqlite mbstring exif pcntl bcmath gd zip \
+    && docker-php-ext-install -j$(nproc) pdo pdo_mysql pdo_sqlite mbstring exif pcntl bcmath gd zip \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Install Node.js (using NodeSource repository for latest LTS)
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs
 
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -36,14 +34,14 @@ RUN a2enmod rewrite
 COPY composer.json composer.lock* /var/www/html/
 
 # Install PHP dependencies (this layer will be cached if composer files don't change)
-RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts --prefer-dist --no-progress
 
 # Copy package files
 COPY package.json package-lock.json* /var/www/html/
 
 # Install Node.js dependencies (this layer will be cached if package files don't change)
 # We need dev dependencies for building assets
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN if [ -f package-lock.json ]; then npm ci --prefer-offline --no-audit; else npm install --prefer-offline --no-audit; fi
 
 # Copy Apache configuration and entrypoint script
 COPY apache-config.conf /etc/apache2/sites-available/000-default.conf
@@ -56,13 +54,13 @@ COPY . /var/www/html
 # Run composer scripts after copying all files
 RUN composer dump-autoload --optimize
 
+# Build frontend assets (before setting permissions for better caching)
+RUN npm run build
+
 # Set proper permissions
 RUN chown -R www-data:www-data /var/www/html \
     && chmod -R 755 /var/www/html/storage \
     && chmod -R 755 /var/www/html/bootstrap/cache
-
-# Build frontend assets (after copying all files)
-RUN npm run build
 
 # Expose port (Render.com will set PORT env variable)
 EXPOSE 8000
