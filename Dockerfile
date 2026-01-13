@@ -1,4 +1,4 @@
-# Use PHP 8.4 with Apache
+# Use PHP 8.4 with Apache (using latest tag for better compatibility)
 FROM php:8.4-apache
 
 # Set working directory
@@ -30,32 +30,25 @@ COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 # Enable Apache mod_rewrite
 RUN a2enmod rewrite
 
-# Copy dependency files first (for better Docker layer caching)
-COPY composer.json composer.lock* /var/www/html/
-
-# Install PHP dependencies (this layer will be cached if composer files don't change)
-RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts --prefer-dist --no-progress
-
-# Copy package files
-COPY package.json package-lock.json* /var/www/html/
-
-# Install Node.js dependencies (this layer will be cached if package files don't change)
-# We need dev dependencies for building assets
-RUN if [ -f package-lock.json ]; then npm ci --prefer-offline --no-audit; else npm install --prefer-offline --no-audit; fi
-
-# Copy Apache configuration and entrypoint script
+# Copy Apache configuration and entrypoint script first
 COPY apache-config.conf /etc/apache2/sites-available/000-default.conf
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Copy the rest of the application files
+# Copy all application files
 COPY . /var/www/html
 
-# Run composer scripts after copying all files
-RUN composer dump-autoload --optimize
+# Install PHP dependencies
+RUN composer install --no-dev --optimize-autoloader --no-interaction --no-scripts --prefer-dist --no-progress
 
-# Build frontend assets (before setting permissions for better caching)
+# Install Node.js dependencies (we need dev dependencies for building assets)
+RUN if [ -f package-lock.json ]; then npm ci --prefer-offline --no-audit; else npm install --prefer-offline --no-audit; fi
+
+# Build frontend assets
 RUN npm run build
+
+# Run composer scripts after building assets
+RUN composer dump-autoload --optimize
 
 # Set proper permissions
 RUN chown -R www-data:www-data /var/www/html \
